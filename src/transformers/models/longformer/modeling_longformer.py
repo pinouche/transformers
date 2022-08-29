@@ -510,14 +510,19 @@ class LongformerSelfAttention(nn.Module):
         self.head_dim = int(config.hidden_size / config.num_attention_heads)
         self.embed_dim = config.hidden_size
 
-        self.query = nn.Linear(config.hidden_size, self.embed_dim)
-        self.key = nn.Linear(config.hidden_size, self.embed_dim)
-        self.value = nn.Linear(config.hidden_size, self.embed_dim)
+        if layer_id == 0:
+            feature_num = 1
+        else:
+            feature_num = self.embed_dim
+        
+        self.query = nn.Linear(feature_num, self.embed_dim)
+        self.key = nn.Linear(feature_num, self.embed_dim)
+        self.value = nn.Linear(feature_num, self.embed_dim)
 
         # separate projection layers for tokens with global attention
-        self.query_global = nn.Linear(config.hidden_size, self.embed_dim)
-        self.key_global = nn.Linear(config.hidden_size, self.embed_dim)
-        self.value_global = nn.Linear(config.hidden_size, self.embed_dim)
+        self.query_global = nn.Linear(feature_num, self.embed_dim)
+        self.key_global = nn.Linear(feature_num, self.embed_dim)
+        self.value_global = nn.Linear(feature_num, self.embed_dim)
 
         self.dropout = config.attention_probs_dropout_prob
 
@@ -555,6 +560,10 @@ class LongformerSelfAttention(nn.Module):
             - +10000: global attention
         """
         hidden_states = hidden_states.transpose(0, 1)
+        
+        is_index_masked = attention_mask < 0 
+        is_index_global_attn = attention_mask > 0 
+        is_global_attn = is_index_global_attn.flatten().any().item() 
 
         # project hidden states
         query_vectors = self.query(hidden_states)
@@ -562,9 +571,9 @@ class LongformerSelfAttention(nn.Module):
         value_vectors = self.value(hidden_states)
 
         seq_len, batch_size, embed_dim = hidden_states.size()
-        assert (
-            embed_dim == self.embed_dim
-        ), f"hidden_states should have embed_dim = {self.embed_dim}, but has {embed_dim}"
+        # assert (
+        #     embed_dim == self.embed_dim
+        # ), f"hidden_states should have embed_dim = {self.embed_dim}, but has {embed_dim}"
 
         # normalize query
         query_vectors /= math.sqrt(self.head_dim)
@@ -577,19 +586,19 @@ class LongformerSelfAttention(nn.Module):
         )
 
         # values to pad for attention probs
-        remove_from_windowed_attention_mask = (attention_mask != 0)[:, :, None, None]
+        # remove_from_windowed_attention_mask = (attention_mask != 0)[:, :, None, None]
 
         # cast to fp32/fp16 then replace 1's with -inf
-        float_mask = remove_from_windowed_attention_mask.type_as(query_vectors).masked_fill(
-            remove_from_windowed_attention_mask, torch.finfo(query_vectors.dtype).min
-        )
+        # float_mask = remove_from_windowed_attention_mask.type_as(query_vectors).masked_fill(
+        #   remove_from_windowed_attention_mask, torch.finfo(query_vectors.dtype).min
+        # )
         # diagonal mask with zeros everywhere and -inf inplace of padding
-        diagonal_mask = self._sliding_chunks_query_key_matmul(
-            float_mask.new_ones(size=float_mask.size()), float_mask, self.one_sided_attn_window_size
-        )
+        # diagonal_mask = self._sliding_chunks_query_key_matmul(
+        #     float_mask.new_ones(size=float_mask.size()), float_mask, self.one_sided_attn_window_size
+        # )
 
         # pad local attention probs
-        attn_scores += diagonal_mask
+        # attn_scores += diagonal_mask
 
         assert list(attn_scores.size()) == [
             batch_size,
@@ -638,8 +647,8 @@ class LongformerSelfAttention(nn.Module):
             attn_probs = layer_head_mask.view(1, 1, -1, 1) * attn_probs
 
         # softmax sometimes inserts NaN if all positions are masked, replace them with 0
-        attn_probs = torch.masked_fill(attn_probs, is_index_masked[:, :, None, None], 0.0)
-        attn_probs = attn_probs.type_as(attn_scores)
+        # attn_probs = torch.masked_fill(attn_probs, is_index_masked[:, :, None, None], 0.0)
+        # attn_probs = attn_probs.type_as(attn_scores)
 
         # free memory
         del attn_scores
