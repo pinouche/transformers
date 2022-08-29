@@ -561,6 +561,7 @@ class LongformerSelfAttention(nn.Module):
         """
         hidden_states = hidden_states.transpose(0, 1)
         
+        attention_mask = torch.zeros(hidden_states.size(), dtype=torch.long)
         is_index_masked = attention_mask < 0 
         is_index_global_attn = attention_mask > 0 
         is_global_attn = is_index_global_attn.flatten().any().item() 
@@ -675,7 +676,7 @@ class LongformerSelfAttention(nn.Module):
             )
 
         assert attn_output.size() == (batch_size, seq_len, self.num_heads, self.head_dim), "Unexpected size"
-        attn_output = attn_output.transpose(0, 1).reshape(seq_len, batch_size, embed_dim).contiguous()
+        attn_output = attn_output.transpose(0, 1).reshape(seq_len, batch_size, self.embed_dim).contiguous()
 
         # compute value for global attention and overwrite to attention output
         # TODO: remove the redundant computation
